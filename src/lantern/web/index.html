@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lantern</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M10 18h28l-4 10H14z' fill='%23E2A21A'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --shelf: #1b2836;
+      --shelf-ink: #e7eef6;
+      --shelf-dim: #9aadc2;
+      --desk: #d5e0eb;
+      --sheet: #f7fafc;
+      --ink: #172230;
+      --quiet: #526579;
+      --line: #c5d2e0;
+      --filament: #e2a21a;
+      --filament-ink: #1b2836;
+      --danger: #8d2f2f;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--desk);
+      color: var(--ink);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: progress; opacity: 0.65; }
+    :focus-visible { outline: 2px solid var(--filament); outline-offset: 2px; }
+    ::selection { background: #f3d48a; color: var(--filament-ink); }
+    .app { display: grid; grid-template-columns: 300px 1fr; min-height: 100vh; }
+    .shelf {
+      background: var(--shelf);
+      color: var(--shelf-ink);
+      padding: 28px 22px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      min-height: 100vh;
+    }
+    .brand { display: flex; gap: 12px; align-items: center; }
+    .brand h1 { margin: 0; font-size: 1.45rem; font-weight: 650; letter-spacing: 0; }
+    .brand p, .status, .drop p { margin: 0; color: var(--shelf-dim); }
+    .lamp { width: 36px; height: 36px; flex: none; }
+    .files { overflow: auto; min-height: 0; flex: 1; }
+    .file { border-top: 1px solid rgba(231, 238, 246, 0.12); padding: 10px 0; }
+    .file strong, .file span { display: block; }
+    .file span { color: var(--shelf-dim); font-size: 0.86rem; overflow-wrap: anywhere; }
+    .file-row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .text-button, .ghost, .solid, .ask {
+      border-radius: 999px;
+      padding: 8px 12px;
+    }
+    .text-button {
+      background: transparent;
+      color: var(--shelf-dim);
+      border: 0;
+      padding: 0;
+    }
+    .text-button:hover { color: var(--shelf-ink); }
+    .shelf-actions, .path-form { display: flex; flex-direction: column; gap: 8px; }
+    .path-form label { color: var(--shelf-dim); }
+    .path-form input {
+      width: 100%;
+      background: #121c28;
+      color: var(--shelf-ink);
+      border: 1px solid rgba(231, 238, 246, 0.22);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ghost {
+      background: transparent;
+      color: var(--shelf-ink);
+      border: 1px solid rgba(231, 238, 246, 0.35);
+    }
+    .solid {
+      background: var(--filament);
+      color: var(--filament-ink);
+      border: 0;
+      font-weight: 650;
+    }
+    .drop {
+      border: 1px dashed rgba(231, 238, 246, 0.35);
+      border-radius: 12px;
+      padding: 12px;
+      display: block;
+    }
+    .drop.over { border-color: var(--filament); }
+    .sr {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+    .desk { padding: 48px 7vw 80px; }
+    .column { max-width: 740px; }
+    .desk h2 { margin: 0 0 14px; font-size: 1.8rem; font-weight: 650; line-height: 1.25; }
+    #ask-form {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+      background: #172433;
+      color: #f4f7fb;
+      padding: 14px;
+      border-radius: 18px 18px 4px 18px;
+    }
+    #question {
+      width: 100%;
+      resize: vertical;
+      min-height: 64px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      line-height: 1.45;
+    }
+    #question::placeholder { color: #8ea0b5; }
+    .ask {
+      background: var(--filament);
+      color: var(--filament-ink);
+      border: 0;
+      font-weight: 650;
+      padding: 12px 18px;
+    }
+    .hint, .mode { color: var(--quiet); margin: 10px 0 0; }
+    #sheet {
+      margin-top: 28px;
+      background: var(--sheet);
+      border-left: 4px solid var(--filament);
+      padding: 26px 28px 32px;
+    }
+    #sheet[data-show="1"] { animation: rise 0.35s ease; }
+    #answer {
+      font-family: "Palatino Linotype", PMingLiU, "Songti SC", "NSimSun", serif;
+      font-size: 1.22rem;
+      line-height: 1.75;
+      max-width: 66ch;
+      white-space: pre-wrap;
+    }
+    #citations { margin: 22px 0 0; padding: 0; list-style: none; }
+    #citations li { border-top: 1px solid var(--line); padding: 12px 0; }
+    #citations strong { font-weight: 650; }
+    .where, .excerpt { display: block; color: var(--quiet); }
+    .excerpt { margin-top: 4px; }
+    .alert { color: var(--danger); white-space: pre-wrap; }
+    .empty { max-width: 46ch; font-size: 1.05rem; }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (max-width: 800px) {
+      .app { grid-template-columns: 1fr; }
+      .shelf { min-height: auto; }
+      .files { max-height: 220px; flex: none; }
+      .desk { padding: 24px 16px 48px; }
+      #ask-form { grid-template-columns: 1fr; }
+      #sheet { padding: 18px 16px 24px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #sheet[data-show="1"] { animation: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="shelf">
+      <div class="brand">
+        <svg class="lamp" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M10 18h28l-4 10H14z" fill="#E2A21A"></path>
+          <path d="M24 28v8M17 38h14" fill="none" stroke="#E7EEF6" stroke-width="2" stroke-linecap="round"></path>
+          <circle cx="24" cy="14" r="3" fill="#F6D98A"></circle>
+        </svg>
+        <div>
+          <h1>Lantern</h1>
+          <p id="tagline"></p>
+        </div>
+      </div>
+      <button id="lang" class="ghost" type="button">English</button>
+      <p id="status" class="status"></p>
+      <div id="files" class="files"></div>
+      <form id="path-form" class="path-form">
+        <label id="path-label" for="path"></label>
+        <input id="path" type="text" autocomplete="off" spellcheck="false">
+        <div class="row">
+          <button id="ingest" class="solid" type="submit"></button>
+          <button id="examples" class="ghost" type="button"></button>
+        </div>
+      </form>
+      <label id="drop" class="drop">
+        <p id="drop-label"></p>
+        <input id="file" class="sr" type="file" multiple>
+      </label>
+      <p id="shelf-note" class="status"></p>
+      <p id="shelf-alert" class="alert" role="alert"></p>
+    </aside>
+    <main class="desk">
+      <div class="column">
+        <h2 id="desk-title"></h2>
+        <form id="ask-form">
+          <label class="sr" id="question-label" for="question"></label>
+          <textarea id="question" rows="2"></textarea>
+          <button id="ask" class="ask" type="submit"></button>
+        </form>
+        <p id="hint" class="hint"></p>
+        <article id="sheet" hidden>
+          <p id="mode" class="mode"></p>
+          <div id="answer"></div>
+          <ol id="citations"></ol>
+        </article>
+        <p id="empty" class="empty"></p>
+        <p id="desk-alert" class="alert" role="alert"></p>
+      </div>
+    </main>
+  </div>
+  <script>
+    const copy = {
+      zh: {
+        tagline: "问自己的文件夹。",
+        lang: "English",
+        desk: "问这份资料",
+        path: "本机目录或文件",
+        ingest: "放入库中",
+        examples: "索引示例",
+        drop: "或把文件拖到这里",
+        ask: "提问",
+        placeholder: "例如：默认端口是多少",
+        empty: "库还是空的。先索引示例，然后问默认端口是多少。",
+        hintOn: "已连上本机模型，生成回答会稍等一会儿。",
+        hintOff: "模型没连接。回答会直接引用原文。",
+        remove: "移出",
+        removeConfirm: "从库里移出这份资料？",
+        indexing: "正在索引…",
+        reading: "正在查阅…",
+        noFiles: "还没有文件。",
+        files: (n, chunks) => `已索引 ${n} 个文件，${chunks} 段。`,
+        extractive: "这段话是从原文抽出来的，没有调用模型。",
+        ollama: (model) => `由本机模型 ${model} 根据引用写成。`,
+        offline: "Ollama 没有连上，所以退回了原文。",
+        report: (r) => `新放入 ${r.indexed} 个，更新 ${r.updated} 个，未改动 ${r.unchanged} 个。`,
+        noHit: "库里没有对应内容。",
+        closest: "没有可以直接引用的句子。",
+        errors: {
+          "path-not-found": "找不到这个路径。",
+          "examples-not-found": "当前目录下没有 examples。请在项目根目录启动。",
+          "invalid-library": "库名不可用。",
+          "empty-question": "先写一个问题。",
+          "path-required": "先填写路径。",
+          "question-too-long": "问题太长了。",
+          "no-files": "没有收到文件。"
+        }
+      },
+      en: {
+        tagline: "Ask your own folders.",
+        lang: "中文",
+        desk: "Ask these files",
+        path: "Local folder or file",
+        ingest: "Index",
+        examples: "Index examples",
+        drop: "Or drop files here",
+        ask: "Ask",
+        placeholder: "For example: what is the default port?",
+        empty: "The library is empty. Index the examples, then ask for the default port.",
+        hintOn: "A local model is connected. An answer may take a while.",
+        hintOff: "No model is connected. Answers quote the original text.",
+        remove: "Remove",
+        removeConfirm: "Remove this file from the library?",
+        indexing: "Indexing…",
+        reading: "Looking through the files…",
+        noFiles: "No files yet.",
+        files: (n, chunks) => `${n} files, ${chunks} passages.`,
+        extractive: "Quoted from the files. No model was called.",
+        ollama: (model) => `Written by the local model ${model} from the citations.`,
+        offline: "Ollama is offline, so this is a quotation.",
+        report: (r) => `Indexed ${r.indexed}, updated ${r.updated}, unchanged ${r.unchanged}.`,
+        noHit: "Nothing in the library matches.",
+        closest: "No sentence answers that directly.",
+        errors: {
+          "path-not-found": "That path was not found.",
+          "examples-not-found": "No examples directory in the current folder. Start Lantern from the project root.",
+          "invalid-library": "That library name is not allowed.",
+          "empty-question": "Write a question first.",
+          "path-required": "Enter a path first.",
+          "question-too-long": "That question is too long.",
+          "no-files": "No file was received."
+        }
+      }
+    };
+
+    const state = { lang: localStorage.getItem("lantern-lang") || "zh", health: null, result: null };
+    const $ = (id) => document.getElementById(id);
+    const t = () => copy[state.lang];
+
+    function applyLanguage() {
+      const text = t();
+      document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+      $("tagline").textContent = text.tagline;
+      $("lang").textContent = text.lang;
+      $("desk-title").textContent = text.desk;
+      $("path-label").textContent = text.path;
+      $("ingest").textContent = text.ingest;
+      $("examples").textContent = text.examples;
+      $("drop-label").textContent = text.drop;
+      $("ask").textContent = text.ask;
+      $("question").placeholder = text.placeholder;
+      $("question-label").textContent = text.desk;
+      $("empty").textContent = state.result ? "" : text.empty;
+      renderStatus();
+      renderAnswer();
+    }
+
+    function renderStatus() {
+      const text = t();
+      const health = state.health;
+      if (!health) {
+        $("status").textContent = "";
+        $("hint").textContent = "";
+        return;
+      }
+      const count = health.documents
+        ? text.files(health.documents, health.chunks)
+        : text.noFiles;
+      const model = health.ollama.ok ? health.ollama.chat_model : "Ollama";
+      $("status").textContent = health.ollama.ok ? `${count} ${model}` : count;
+      $("hint").textContent = health.ollama.ok ? text.hintOn : text.hintOff;
+    }
+
+    function renderFiles(documents) {
+      const box = $("files");
+      box.replaceChildren();
+      for (const doc of documents) {
+        const item = document.createElement("div");
+        item.className = "file";
+        const row = document.createElement("div");
+        row.className = "file-row";
+        const title = document.createElement("strong");
+        title.textContent = doc.title;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "text-button";
+        remove.textContent = t().remove;
+        remove.setAttribute("aria-label", `${t().remove} ${doc.title}`);
+        remove.addEventListener("click", () => removeDocument(doc.id));
+        row.append(title, remove);
+        const where = document.createElement("span");
+        where.textContent = doc.display_path;
+        item.append(row, where);
+        box.append(item);
+      }
+    }
+
+    function renderAnswer() {
+      const result = state.result;
+      const sheet = $("sheet");
+      if (!result) {
+        sheet.hidden = true;
+        return;
+      }
+      sheet.hidden = false;
+      sheet.dataset.show = "1";
+      $("empty").textContent = "";
+      const text = t();
+      let mode = result.mode === "ollama" ? text.ollama(result.model || "") : text.extractive;
+      if (result.note === "ollama-offline" || result.note === "chat-model-missing") mode = text.offline;
+      if (result.note === "no-hit") mode = text.noHit;
+      $("mode").textContent = mode;
+      $("answer").textContent = result.answer || "";
+      const list = $("citations");
+      list.replaceChildren();
+      for (const citation of result.citations || []) {
+        const item = document.createElement("li");
+        const title = document.createElement("strong");
+        const place = citation.line_start ? `${citation.display_path}:${citation.line_start}` : citation.display_path;
+        const heading = citation.heading ? ` · ${citation.heading}` : "";
+        title.textContent = `[${citation.n}] ${citation.title}`;
+        const where = document.createElement("span");
+        where.className = "where";
+        where.textContent = place + heading;
+        const excerpt = document.createElement("span");
+        excerpt.className = "excerpt";
+        excerpt.textContent = citation.excerpt;
+        item.append(title, where, excerpt);
+        list.append(item);
+      }
+    }
+
+    async function request(url, options) {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = payload.detail;
+        const known = typeof detail === "string" ? t().errors[detail] : "";
+        const message = known || (typeof detail === "string" ? detail : textFromValidation(detail));
+        throw new Error(message || `HTTP ${response.status}`);
+      }
+      return payload;
+    }
+
+    function textFromValidation(detail) {
+      if (!Array.isArray(detail)) return "";
+      return detail.map((item) => item.msg).filter(Boolean).join(" ");
+    }
+
+    async function refresh() {
+      state.health = await request("/api/health");
+      const documents = await request("/api/documents");
+      renderStatus();
+      renderFiles(documents.documents);
+      $("empty").hidden = state.health.documents > 0 || Boolean(state.result);
+      if (!state.result && state.health.documents === 0) $("empty").textContent = t().empty;
+    }
+
+    async function runIngest(action) {
+      $("shelf-alert").textContent = "";
+      $("shelf-note").textContent = "";
+      $("ingest").disabled = true;
+      $("examples").disabled = true;
+      const previous = $("status").textContent;
+      $("status").textContent = t().indexing;
+      try {
+        const report = await action();
+        $("shelf-note").textContent = t().report(report);
+        if (report.errors && report.errors.length) $("shelf-alert").textContent = report.errors.join("\n");
+        await refresh();
+      } catch (error) {
+        $("status").textContent = previous;
+        $("shelf-alert").textContent = error.message;
+      } finally {
+        $("ingest").disabled = false;
+        $("examples").disabled = false;
+      }
+    }
+
+    async function removeDocument(id) {
+      if (!confirm(t().removeConfirm)) return;
+      $("shelf-alert").textContent = "";
+      try {
+        await request(`/api/documents/${id}`, { method: "DELETE" });
+        await refresh();
+      } catch (error) {
+        $("shelf-alert").textContent = error.message;
+      }
+    }
+
+    $("lang").addEventListener("click", () => {
+      state.lang = state.lang === "zh" ? "en" : "zh";
+      localStorage.setItem("lantern-lang", state.lang);
+      applyLanguage();
+      refresh().catch((error) => { $("shelf-alert").textContent = error.message; });
+    });
+
+    $("path-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const path = $("path").value.trim();
+      if (!path) {
+        $("shelf-alert").textContent = t().errors["path-required"];
+        return;
+      }
+      runIngest(() => request("/api/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, embed: true })
+      }));
+    });
+
+    $("examples").addEventListener("click", () => {
+      runIngest(() => request("/api/examples", { method: "POST" }));
+    });
+
+    $("ask-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const question = $("question").value.trim();
+      $("desk-alert").textContent = "";
+      if (!question) {
+        $("desk-alert").textContent = t().errors["empty-question"];
+        return;
+      }
+      $("ask").disabled = true;
+      const previous = $("hint").textContent;
+      $("hint").textContent = t().reading;
+      try {
+        state.result = await request("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, use_llm: true })
+        });
+        renderAnswer();
+        $("sheet").scrollIntoView({ block: "nearest" });
+      } catch (error) {
+        $("desk-alert").textContent = error.message;
+      } finally {
+        $("ask").disabled = false;
+        renderStatus();
+        if (!$("hint").textContent) $("hint").textContent = previous;
+      }
+    });
+
+    $("question").addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        $("ask-form").requestSubmit();
+      }
+    });
+
+    async function uploadFiles(fileList) {
+      if (!fileList.length) return;
+      const body = new FormData();
+      for (const file of fileList) body.append("files", file, file.name);
+      body.append("library", "default");
+      await runIngest(() => request("/api/upload", { method: "POST", body }));
+    }
+
+    $("file").addEventListener("change", () => {
+      uploadFiles($("file").files);
+      $("file").value = "";
+    });
+
+    const drop = $("drop");
+    ["dragenter", "dragover"].forEach((name) => {
+      drop.addEventListener(name, (event) => {
+        event.preventDefault();
+        drop.classList.add("over");
+      });
+    });
+    ["dragleave", "drop"].forEach((name) => {
+      drop.addEventListener(name, (event) => {
+        event.preventDefault();
+        drop.classList.remove("over");
+      });
+    });
+    drop.addEventListener("drop", (event) => uploadFiles(event.dataTransfer.files));
+
+    applyLanguage();
+    refresh().catch((error) => { $("shelf-alert").textContent = error.message; });
+  </script>
+</body>
+</html>
