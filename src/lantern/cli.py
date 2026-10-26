@@ -8,7 +8,7 @@ from lantern import __version__
 from lantern.answer import ask
 from lantern.config import Settings
 from lantern.ingest import ingest_path
-from lantern.ollama import Ollama
+from lantern.ollama import Ollama, model_ready
 from lantern.store import Store
 
 
@@ -85,6 +85,9 @@ def _ingest(store: Store, ollama: Ollama, args: argparse.Namespace) -> int:
         print(f"embeddings: {report.embed_note}")
     for error in report.errors:
         print(error)
+    stored = report.indexed + report.updated + report.unchanged
+    if stored == 0 and (report.errors or report.skipped):
+        return 1
     return 0
 
 
@@ -122,7 +125,18 @@ def _status(store: Store, ollama: Ollama, settings: Settings) -> int:
     print(f"chunks: {counts['chunks']}")
     print(f"vectors: {counts['vectors']}")
     if health.get("ok"):
-        print(f"ollama: connected, chat {settings.chat_model}, embed {settings.embed_model}")
+        models = health.get("models") or []
+        chat_ok = model_ready(models, settings.chat_model)
+        embed_ok = model_ready(models, settings.embed_model)
+        if chat_ok and embed_ok:
+            print(f"ollama: connected, chat {settings.chat_model}, embed {settings.embed_model}")
+        else:
+            missing = []
+            if not chat_ok:
+                missing.append(settings.chat_model)
+            if not embed_ok:
+                missing.append(settings.embed_model)
+            print(f"ollama: connected, missing {', '.join(missing)}")
     else:
         print("ollama: not connected, answers will quote the original text")
     return 0

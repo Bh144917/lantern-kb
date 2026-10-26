@@ -214,8 +214,17 @@ class Store:
         if library:
             sql += " AND library = ?"
             params.append(library)
-        sql += " LIMIT ?"
-        params.append(limit)
+        sql += """
+            ORDER BY
+                CASE WHEN title LIKE ? ESCAPE '\\' OR heading LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END DESC,
+                CASE
+                    WHEN text GLOB '*[0-9]*' OR heading GLOB '*[0-9]*' OR title GLOB '*[0-9]*' THEN 1
+                    ELSE 0
+                END DESC,
+                id DESC
+            LIMIT ?
+        """
+        params.extend([pattern, pattern, limit])
         with self._lock:
             rows = self.conn.execute(sql, params).fetchall()
         return [int(row["id"]) for row in rows]

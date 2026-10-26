@@ -22,19 +22,21 @@ QUESTION_PHRASES = (
     "一下",
 )
 
-STOP_CHARS = set("的了吗呢啊吧与及在被把将而又并也都很最这那你我它叫是")
+# Particles only. Characters such as 这, 最, and 是 stay, because they belong to real words.
+STOP_CHARS = set("的了吗呢啊吧呀")
 LATIN_RE = re.compile(r"[A-Za-z0-9_]{2,}")
 CJK_RUN_RE = re.compile(r"[\u4e00-\u9fff]{2,}")
 SENTENCE_RE = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 FTS_UNSAFE = re.compile(r"[\"*^():]")
+QUANTITY_RE = re.compile(r"多少|几个|多大|多长|多久|how many|how much|how long|how big", re.I)
 
 
 def keywords(query: str, limit: int = 12) -> list[str]:
     """Pull the terms that should actually hit a document.
 
     Chinese questions are not split by a dictionary. Glue words are removed,
-    then long phrases also contribute 3- and 4-character windows so a query
-    still matches when the source sentence uses a shorter form.
+    then phrases also contribute shorter windows so a query still matches
+    when the source sentence uses a shorter form.
     """
     text = query.strip()
     for phrase in QUESTION_PHRASES:
@@ -82,14 +84,30 @@ def _split_cjk(run: str) -> list[str]:
 
 
 def _cjk_pieces(part: str) -> list[str]:
-    if len(part) <= 4:
+    if len(part) <= 2:
         return [part]
     pieces = [part]
-    for size in (4, 3):
-        step = 2 if len(part) > 6 else 1
-        for index in range(0, len(part) - size + 1, step):
+    sizes: list[int] = []
+    if len(part) >= 5:
+        sizes.append(4)
+    if len(part) >= 4:
+        sizes.append(3)
+    sizes.append(2)
+    for size in sizes:
+        for index in range(0, len(part) - size + 1):
             pieces.append(part[index : index + size])
     return pieces
+
+
+def asks_quantity(text: str) -> bool:
+    return QUANTITY_RE.search(text) is not None
+
+
+def quantity_bonus(question: str, text: str) -> float:
+    """Prefer a passage that actually states a number when the question asks for one."""
+    if not asks_quantity(question) or re.search(r"\d", text) is None:
+        return 0.0
+    return 0.55
 
 
 def fts_query(tokens: list[str]) -> str | None:
@@ -132,6 +150,9 @@ def coverage(text: str, tokens: list[str]) -> float:
 
 def _contains(haystack: str, token: str) -> bool:
     # Latin tokens must match a whole word. "is" is inside "English", but it is not a hit.
+    # A unit may sit against a number, so "MB" still matches "2MB".
+    if re.fullmatch(r"[a-z]+", token):
+        return re.search(rf"(?<![a-z_]){re.escape(token)}(?![a-z0-9_])", haystack) is not None
     if re.fullmatch(r"[a-z0-9_]+", token):
         return re.search(rf"(?<![a-z0-9_]){re.escape(token)}(?![a-z0-9_])", haystack) is not None
     return token in haystack

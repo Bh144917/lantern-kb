@@ -237,6 +237,7 @@
         empty: "库还是空的。先索引示例，然后问默认端口是多少。",
         hintOn: "已连上本机模型，生成回答会稍等一会儿。",
         hintOff: "模型没连接。回答会直接引用原文。",
+        hintMissing: "Ollama 已连接，但对话模型还没安装。回答会先引用原文。",
         remove: "移出",
         removeConfirm: "从库里移出这份资料？",
         indexing: "正在索引…",
@@ -246,7 +247,14 @@
         extractive: "这段话是从原文抽出来的，没有调用模型。",
         ollama: (model) => `由本机模型 ${model} 根据引用写成。`,
         offline: "Ollama 没有连上，所以退回了原文。",
-        report: (r) => `新放入 ${r.indexed} 个，更新 ${r.updated} 个，未改动 ${r.unchanged} 个。`,
+        modelMissing: "对话模型没有安装，所以退回了原文。",
+        report: (r) => `新放入 ${r.indexed} 个，更新 ${r.updated} 个，未改动 ${r.unchanged} 个${r.skipped ? `，跳过 ${r.skipped} 个` : ""}。`,
+        embedNotes: {
+          "embed-incomplete": "还有段落没有写成向量，再索引一次会继续。",
+          "ollama-offline": "Ollama 没有连上，这次没有写向量。",
+          "embed-model-missing": "嵌入模型没有安装，这次没有写向量。",
+          "embed-failed": "写向量失败了。"
+        },
         noHit: "库里没有对应内容。",
         closest: "没有可以直接引用的句子。",
         errors: {
@@ -272,6 +280,7 @@
         empty: "The library is empty. Index the examples, then ask for the default port.",
         hintOn: "A local model is connected. An answer may take a while.",
         hintOff: "No model is connected. Answers quote the original text.",
+        hintMissing: "Ollama is connected, but the chat model is not installed. Answers quote the original text.",
         remove: "Remove",
         removeConfirm: "Remove this file from the library?",
         indexing: "Indexing…",
@@ -281,7 +290,14 @@
         extractive: "Quoted from the files. No model was called.",
         ollama: (model) => `Written by the local model ${model} from the citations.`,
         offline: "Ollama is offline, so this is a quotation.",
-        report: (r) => `Indexed ${r.indexed}, updated ${r.updated}, unchanged ${r.unchanged}.`,
+        modelMissing: "The chat model is not installed, so this is a quotation.",
+        report: (r) => `Indexed ${r.indexed}, updated ${r.updated}, unchanged ${r.unchanged}${r.skipped ? `, skipped ${r.skipped}` : ""}.`,
+        embedNotes: {
+          "embed-incomplete": "Some passages still have no vector. Index again to continue.",
+          "ollama-offline": "Ollama is offline, so no vectors were written.",
+          "embed-model-missing": "The embedding model is not installed, so no vectors were written.",
+          "embed-failed": "Writing vectors failed."
+        },
         noHit: "Nothing in the library matches.",
         closest: "No sentence answers that directly.",
         errors: {
@@ -329,9 +345,11 @@
       const count = health.documents
         ? text.files(health.documents, health.chunks)
         : text.noFiles;
-      const model = health.ollama.ok ? health.ollama.chat_model : "Ollama";
-      $("status").textContent = health.ollama.ok ? `${count} ${model}` : count;
-      $("hint").textContent = health.ollama.ok ? text.hintOn : text.hintOff;
+      const chatReady = Boolean(health.ollama.chat_ready);
+      $("status").textContent = chatReady ? `${count} ${health.ollama.chat_model}` : count;
+      if (chatReady) $("hint").textContent = text.hintOn;
+      else if (health.ollama.ok) $("hint").textContent = text.hintMissing;
+      else $("hint").textContent = text.hintOff;
     }
 
     function renderFiles(documents) {
@@ -370,7 +388,8 @@
       $("empty").textContent = "";
       const text = t();
       let mode = result.mode === "ollama" ? text.ollama(result.model || "") : text.extractive;
-      if (result.note === "ollama-offline" || result.note === "chat-model-missing") mode = text.offline;
+      if (result.note === "chat-model-missing") mode = text.modelMissing;
+      else if (result.note === "ollama-offline") mode = text.offline;
       if (result.note === "no-hit") mode = text.noHit;
       $("mode").textContent = mode;
       $("answer").textContent = result.answer || "";
@@ -393,8 +412,10 @@
       }
     }
 
-    async function request(url, options) {
-      const response = await fetch(url, options);
+    async function request(url, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set("X-Lantern-Request", "1");
+      const response = await fetch(url, { ...options, headers });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const detail = payload.detail;
@@ -428,8 +449,12 @@
       $("status").textContent = t().indexing;
       try {
         const report = await action();
-        $("shelf-note").textContent = t().report(report);
-        if (report.errors && report.errors.length) $("shelf-alert").textContent = report.errors.join("\n");
+        const text = t();
+        $("shelf-note").textContent = text.report(report);
+        const notes = [];
+        if (report.errors && report.errors.length) notes.push(report.errors.join("\n"));
+        if (report.embed_note) notes.push(text.embedNotes[report.embed_note] || report.embed_note);
+        $("shelf-alert").textContent = notes.join("\n");
         await refresh();
       } catch (error) {
         $("status").textContent = previous;
@@ -491,7 +516,7 @@
         state.result = await request("/api/ask", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, use_llm: true })
+          body: JSON.stringify({ question, use_llm: true, library: "*" })
         });
         renderAnswer();
         $("sheet").scrollIntoView({ block: "nearest" });

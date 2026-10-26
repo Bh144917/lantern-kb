@@ -81,7 +81,7 @@ def _ingest_file(store: Store, path: Path, library: str, report: IngestReport) -
         return
     try:
         parsed = read_document(path)
-        pieces = chunk_document(parsed.text)
+        pieces = chunk_document(parsed.text, headings=parsed.headings)
         if not pieces:
             report.skipped += 1
             return
@@ -122,6 +122,8 @@ def embed_pending(store: Store, ollama: Ollama) -> tuple[int, str]:
             return done, note or "embed-model-missing"
         store.save_embeddings(ollama.embed_model, [(chunk_id, vector) for (chunk_id, _), vector in zip(batch, vectors)])
         done += len(batch)
+    if store.chunks_without_embeddings(ollama.embed_model, 1):
+        return done, "embed-incomplete"
     return done, ""
 
 

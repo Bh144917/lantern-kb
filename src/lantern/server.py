@@ -3,15 +3,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from lantern import __version__
 from lantern.answer import ask, display_path
 from lantern.config import Settings
 from lantern.ingest import ingest_path
-from lantern.ollama import Ollama
+from lantern.ollama import Ollama, model_ready
+from lantern.parsers import SUPPORTED_EXTENSIONS
 from lantern.store import Store
 
 LIBRARY_RE = re.compile(r"^[A-Za-z0-9_\-\u4e00-\u9fff]{1,40}$")
@@ -45,6 +46,15 @@ def create_app(home: Path | None = None) -> FastAPI:
     app.state.ollama = ollama
     page = Path(__file__).resolve().parent / "web" / "index.html"
 
+    @app.middleware("http")
+    async def reject_cross_site(request: Request, call_next):
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            if request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse(status_code=403, content={"detail": "cross-site-request"})
+            if request.headers.get("x-lantern-request") != "1":
+                return JSONResponse(status_code=403, content={"detail": "cross-site-request"})
+        return await call_next(request)
+
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(page)
@@ -53,6 +63,8 @@ def create_app(home: Path | None = None) -> FastAPI:
     def health() -> dict:
         counts = store.counts()
         ollama_health = ollama.health()
+        models = ollama_health.get("models") or []
+        reachable = bool(ollama_health.get("ok"))
         return {
             "version": __version__,
             "home": str(settings.home),
@@ -60,10 +72,12 @@ def create_app(home: Path | None = None) -> FastAPI:
             "chunks": counts["chunks"],
             "vectors": counts["vectors"],
             "ollama": {
-                "ok": bool(ollama_health.get("ok")),
+                "ok": reachable,
+                "chat_ready": reachable and model_ready(models, settings.chat_model),
+                "embed_ready": reachable and model_ready(models, settings.embed_model),
                 "chat_model": settings.chat_model,
                 "embed_model": settings.embed_model,
-                "models": ollama_health.get("models", []),
+                "models": models,
             },
         }
 
@@ -126,9 +140,7 @@ def create_app(home: Path | None = None) -> FastAPI:
             if not name or name in {".", ".."}:
                 continue
             target = _unique_target(destination, name)
-            data = await upload_file.read()
-            if len(data) > MAX_UPLOAD_BYTES:
-                raise HTTPException(status_code=400, detail=f"{name} is larger than 20MB")
+            data = await _read_limited(upload_file, MAX_UPLOAD_BYTES)
             target.write_bytes(data)
             saved.append(target)
         if not saved:
@@ -139,6 +151,10 @@ def create_app(home: Path | None = None) -> FastAPI:
         skipped = 0
         errors: list[str] = []
         for path in saved:
+            if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                skipped += 1
+                errors.append(f"{path.name}: 不支持的类型")
+                continue
             report = ingest_path(store, path, library_name, ollama=None, embed=False)
             indexed += report.indexed
             updated += report.updated
@@ -177,6 +193,21 @@ def create_app(home: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app
+
+
+async def _read_limited(upload_file: UploadFile, limit: int) -> bytes:
+    blocks: list[bytes] = []
+    total = 0
+    while True:
+        block = await upload_file.read(1024 * 1024)
+        if not block:
+            break
+        total += len(block)
+        if total > limit:
+            name = Path(upload_file.filename or "file").name
+            raise HTTPException(status_code=400, detail=f"{name} is larger than 20MB")
+        blocks.append(block)
+    return b"".join(blocks)
 
 
 def _library(value: object) -> str:

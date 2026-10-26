@@ -55,6 +55,7 @@ CODE_EXTENSIONS = {
 }
 HTML_EXTENSIONS = {".html", ".htm"}
 PDF_EXTENSIONS = {".pdf"}
+HEADING_EXTENSIONS = {".md", ".markdown", ".txt", ".text", ".rst"} | PDF_EXTENSIONS
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | CODE_EXTENSIONS | HTML_EXTENSIONS | PDF_EXTENSIONS
 MAX_TEXT_BYTES = 2_000_000
 MAX_PDF_BYTES = 20_000_000
@@ -73,6 +74,7 @@ class ParseError(Exception):
 class ParsedDocument:
     title: str
     text: str
+    headings: bool = True
 
 
 def read_document(path: Path) -> ParsedDocument:
@@ -91,16 +93,20 @@ def read_document(path: Path) -> ParsedDocument:
         text = _html_to_text(raw) if suffix in HTML_EXTENSIONS else raw
     if "\x00" in text:
         raise ParseError("看起来是二进制文件，已跳过")
-    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-    if not text:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not text.strip():
         raise ParseError("没有可提取的文本")
-    return ParsedDocument(title=_title(path, text), text=text)
+    # Keep leading blank lines so citation numbers match the file.
+    text = text.rstrip()
+    headings = suffix in HEADING_EXTENSIONS
+    return ParsedDocument(title=_title(path, text, headings), text=text, headings=headings)
 
 
-def _title(path: Path, text: str) -> str:
-    match = _TITLE_RE.search(text)
-    if match:
-        return match.group(1).strip()[:120]
+def _title(path: Path, text: str, headings: bool) -> str:
+    if headings:
+        match = _TITLE_RE.search(text)
+        if match:
+            return match.group(1).strip()[:120]
     return path.stem[:120]
 
 

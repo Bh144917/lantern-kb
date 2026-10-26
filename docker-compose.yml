@@ -2,7 +2,7 @@ services:
   lantern:
     build: .
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     environment:
       LANTERN_HOME: /data
       LANTERN_OLLAMA_HOST: http://host.docker.internal:11434

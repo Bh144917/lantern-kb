@@ -6,6 +6,14 @@ import urllib.error
 import urllib.request
 
 
+def model_ready(names: list[str], wanted: str) -> bool:
+    wanted = wanted.strip()
+    if not wanted:
+        return False
+    prefix = wanted + ":"
+    return any(name == wanted or name.startswith(prefix) for name in names)
+
+
 class Ollama:
     def __init__(self, host: str, chat_model: str, embed_model: str):
         self.host = host.rstrip("/")

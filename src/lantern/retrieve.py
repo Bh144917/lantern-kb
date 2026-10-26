@@ -4,7 +4,11 @@ from dataclasses import dataclass
 
 from lantern.ollama import Ollama
 from lantern.store import Store
-from lantern.textutil import coverage, fts_query, keywords
+from lantern.textutil import coverage, fts_query, keywords, quantity_bonus
+
+# Reciprocal-rank fusion is about 1/61 per list. Scale it so a strong semantic
+# hit can outrank a passage that only shares a short token.
+RRF_WEIGHT = 30
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,7 @@ def retrieve(
         if key in seen_probes:
             continue
         seen_probes.add(key)
-        like_ids.extend(store.search_like(library, probe, limit=20))
+        like_ids.extend(store.search_like(library, probe, limit=100))
 
     vector_ids = _vector_ids(store, question, library, ollama) if ollama is not None else []
     fused = _rrf([_dedupe(fts_ids), _dedupe(like_ids), _dedupe(vector_ids)])
@@ -64,7 +68,10 @@ def retrieve(
             continue
         text = str(row["text"])
         blob = "\n".join(part for part in (str(row["title"]), str(row["heading"]), text) if part)
-        score = fused_score + coverage(blob, tokens)
+        lexical = coverage(blob, tokens)
+        score = fused_score * RRF_WEIGHT + lexical
+        if lexical > 0:
+            score += quantity_bonus(question, blob)
         ranked.append(
             Hit(
                 chunk_id=chunk_id,
@@ -85,7 +92,7 @@ def _vector_ids(store: Store, question: str, library: str | None, ollama: Ollama
     if not ollama.health().get("ok"):
         return []
     loaded = store.load_embeddings(ollama.embed_model, library)
-    if not loaded or len(loaded) > 4000:
+    if not loaded:
         return []
     vectors, note = ollama.embed([question[:1800]])
     if not vectors or note:

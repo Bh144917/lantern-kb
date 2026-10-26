@@ -113,3 +113,50 @@ def test_delete_document_removes_it_from_search(store: Store, tmp_path: Path):
 def test_fts_index_finds_the_port_phrase(store: Store):
     ingest_path(store, EXAMPLES, "default", embed=False)
     assert store.search_fts("default", '"默认端口"', limit=5)
+
+
+def test_natural_questions_still_find_the_example_answers(store: Store):
+    ingest_path(store, EXAMPLES, "default", embed=False)
+
+    port = ask(store, "这个端口是多少", "default", use_llm=False)
+    assert "8787" in port["answer"]
+
+    numbered = ask(store, "端口号是多少", "default", use_llm=False)
+    assert "8787" in numbered["answer"]
+
+    size = ask(store, "文件最大是多少", "default", use_llm=False)
+    assert "2MB" in size["answer"].splitlines()[0]
+
+
+def test_short_term_does_not_stop_at_the_oldest_chunks(store: Store, tmp_path: Path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for number in range(25):
+        (docs / f"noise-{number:02d}.md").write_text(
+            f"# 噪声{number}\n\n这里只是提到端口，没有编号。\n",
+            encoding="utf-8",
+        )
+    ingest_path(store, docs, "default", embed=False)
+    real = tmp_path / "real.md"
+    real.write_text("# 真实\n\n服务端口是 8787。\n", encoding="utf-8")
+    ingest_path(store, real, "default", embed=False)
+
+    found = ask(store, "端口是多少", "default", use_llm=False)
+    assert "8787" in found["answer"]
+
+
+def test_python_comment_remains_searchable_text(store: Store, tmp_path: Path):
+    note = tmp_path / "secret.py"
+    note.write_text("# 密钥 TOKEN-1\nvalue = 1\n", encoding="utf-8")
+    ingest_path(store, note, "default", embed=False)
+    found = ask(store, "TOKEN-1", "default", use_llm=False)
+    assert "TOKEN-1" in found["citations"][0]["excerpt"]
+    assert found["citations"][0]["title"] == "secret"
+
+
+def test_citation_line_survives_leading_blank_lines(store: Store, tmp_path: Path):
+    note = tmp_path / "pad.md"
+    note.write_text("\n\n# 标题\n\n正文在第五行，标记 PAD-5。\n", encoding="utf-8")
+    ingest_path(store, note, "default", embed=False)
+    found = ask(store, "PAD-5", "default", use_llm=False)
+    assert found["citations"][0]["line_start"] == 3

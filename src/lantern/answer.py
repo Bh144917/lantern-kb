@@ -5,7 +5,7 @@ from pathlib import Path
 from lantern.ollama import Ollama
 from lantern.retrieve import retrieve
 from lantern.store import Store
-from lantern.textutil import clip, coverage, keywords, looks_chinese, sentences
+from lantern.textutil import clip, coverage, keywords, looks_chinese, quantity_bonus, sentences
 
 SYSTEM_ZH = (
     "你是 Lantern，只根据给定材料回答问题。"
@@ -78,6 +78,7 @@ def _extractive(question: str, hits: list) -> str:
             score = coverage(sentence, tokens)
             if score <= 0:
                 continue
+            score += quantity_bonus(question, sentence)
             scored.append((score, index, sentence))
     if not scored:
         if looks_chinese(question):

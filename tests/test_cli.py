@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from lantern.cli import main
+from lantern.parsers import MAX_TEXT_BYTES
 from tests.test_textutil import EXAMPLES
 
 
@@ -24,3 +25,10 @@ def test_cli_home_flag_after_the_command(tmp_path: Path, capsys):
 
 def test_missing_path_returns_one(tmp_path: Path):
     assert main(["ingest", str(tmp_path / "nope"), "--home", str(tmp_path / "home")]) == 1
+
+
+def test_ingest_with_nothing_stored_returns_one(tmp_path: Path):
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "big.txt").write_text("A" * (MAX_TEXT_BYTES + 1), encoding="utf-8")
+    assert main(["ingest", str(docs), "--home", str(tmp_path / "home"), "--no-embed"]) == 1
